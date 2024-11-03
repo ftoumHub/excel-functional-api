@@ -4,6 +4,8 @@ Functional API over Apache POI
 
 Parsing Excel file functionally
 
+D'après la vidéo de Julien Truffaut : https://www.youtube.com/watch?v=__zuECMFCRc
+
 ## Comment construire une API "Fonctionnelle"
 
 # Définition d'une fonction
