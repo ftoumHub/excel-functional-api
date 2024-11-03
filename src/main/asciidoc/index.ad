@@ -1,0 +1,17 @@
+= Cas d'utilisation de programmation fonctionnelle: Analyse d'un fichier Excel
+:toc: left
+:docinfo: shared
+:toc-title: excel-utils
+
+++++
+<link rel="stylesheet"  href="http://cdnjs.cloudflare.com/ajax/libs/font-awesome/3.1.0/css/font-awesome.min.css">
+++++
+:icons: font
+
+include::01-WhatsAFunction.ad[]
+include::02-Excel_API.ad[]
+include::03-ErrorHandling.ad[]
+include::04-NumericRange.ad[]
+include::05-UseCases.ad[]
+include::06-ParsingAPI.ad[]
+include::07-FlatMap.ad[]

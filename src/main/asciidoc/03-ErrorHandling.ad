@@ -1,0 +1,41 @@
+= 3. Gestion des erreurs
+== Definition d'un type d'erreur
+
+```java
+class ParserError(String ref, String expectedFormat, String message)
+```
+
+== SafeCell
+
+On va créer un "Wrapper" safe pour extraire la valeur d'une cellule sans risquer une exception.
+
+```java
+public class SafeCell {
+  public SafeCell(Cell cell) {
+    this.cell = cell;
+    this.reference = String.format("%s!%s", cell.getSheet().getSheetName(), cell.getAddress());
+  }
+
+  public Either<ParserError, Double> asDouble() {
+	Try doubleTry = Try.of(() -> this.cell.getNumericCellValue());
+
+    return doubleTry.isFailure()
+            ? Either.left(new ParserError(this.reference, "Numeric", doubleTry.getCause().getMessage()))
+            : Either.right((Double) doubleTry.get());
+    }
+}
+```
+
+== TUs
+
+```java
+SafeCell safeCell = new SafeCell(cell);
+```
+
+```java
+safeCell.asDouble()
+Right(10.12)
+
+safeCell.asString()
+Left(ParserError(Sheet1!B6,String,Cannot get a STRING value from a NUMERIC cell))
+```

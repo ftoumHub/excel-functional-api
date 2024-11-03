@@ -1,0 +1,82 @@
+= 2. Excel API
+
+== Excel API: Workbook
+
+```xml
+<dependency>
+    <groupId>org.apache.poi</groupId>
+    <artifactId>poi-ooxml</artifactId>
+    <version>3.17</version>
+</dependency>
+```
+```java
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
+
+public static Workbook load(String fileName) throws IOException, InvalidFormatException {
+	return WorkbookFactory.create(new FileInputStream(new File(fileName)));
+}
+
+workbook = IO.load("example.xlsx");
+```
+
+== Excel API: Name
+
+```java
+// On récupère la référence à une plage de cellule à partir d'un nom
+Name oilProduction = workbook.getName("OilProd");
+
+assertEquals(oilProduction.getRefersToFormula(), "Sheet1!$B$6:$J$6");
+```
+[.thumb]
+image::workbook.png[scaledwidth=50%]
+
+== Excel API: AreaReference
+
+```java
+import org.apache.poi.ss.util.AreaReference
+
+String oilProdFormule = workbook.getName("OilProd").getRefersToFormula();
+
+AreaReference area = new AreaReference(oilProdFormule, workbook.getSpreadsheetVersion());
+
+List.of(area.getAllReferencedCells()).forEach(c -> println(c));
+```
+
+```java
+org.apache.poi.ss.util.CellReference [Sheet1!$B$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$C$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$D$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$E$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$F$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$G$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$H$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$I$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$J$6]
+```
+
+== Excel API: Cell
+
+```java
+CellReference cellRef = List.of(area.getAllReferencedCells()).head();
+
+// on a plusieurs accesseurs qui permettent, à partir d'une cellule de :
+Cell cell = workbook
+    .getSheet(cellRef.getSheetName()) // trouver un onglet
+    .getRow(cellRef.getRow())         // trouver une colonne
+    .getCell(cellRef.getCol());       // trouver une cellule
+```
+
+```java
+// Une fois, qu'on a la cellule, on peut récupérer sa valeur
+assertEquals(cell.getNumericCellValue(), 10.12, 0);
+```
+
+```java
+cell.getStringCellValue();
+java.lang.IllegalStateException: Cannot get a STRING value from a NUMERIC cell
+  at org.apache.poi.xssf.usermodel.XSSFCell.typeMismatch(XSSFCell.java:1050)
+  at org.apache.poi.xssf.usermodel.XSSFCell.getRichStringCellValue(XSSFCell.java:404)
+  at org.apache.poi.xssf.usermodel.XSSFCell.getStringCellValue(XSSFCell.java:356)
+  ... 308 elided
+```

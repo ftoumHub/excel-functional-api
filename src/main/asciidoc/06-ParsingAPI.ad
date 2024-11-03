@@ -1,0 +1,86 @@
+= 6. Parsing API
+== Définition de l'interface
+
+Si on veut étendre l'API pour récupérer d'autre type, on va produire une interface du type suivant:
+
+```java
+Either<ParserError, List<Double>> numericRange(Workbook workbook, String name);
+Either<ParserError, List<Integer>> intRange(Workbook workbook, String name);
+Either<ParserError, List<String>> stringRange(Workbook workbook, String name);
+
+Either<ParserError, Double> numeric(Workbook workbook, String name);
+Either<ParserError, Integer> int(Workbook workbook, String name);
+Either<ParserError, String> string(Workbook workbook, String name);
+```
+
+En généralisant on obtient:
+```java
+public interface Parser<A>  {
+    Either<ParserError, A> parse(Workbook workbook, String name);
+}
+```
+
+== Définition d'un type "Parser"
+
+Idéalement, on voudrait une API plus simple dans le style suivant:
+
+```java
+Parser<List<Double>> numericRange(Workbook workbook, String name);
+Parser<List<Integer>> intRange(Workbook workbook, String name);
+Parser<List<String>> stringRange(Workbook workbook, String name);
+
+Parser<Double> numeric(Workbook workbook, String name);
+Parser<Integer> int(Workbook workbook, String name);
+Parser<String> string(Workbook workbook, String name);
+```
+
+== Implémentation de la méthode numeric (1/2)
+
+Un Parser sera un objet dont la méthode parse va retourner un Either<ParserError, Double>
+
+```java
+return new Parser<Double>() {
+    @Override
+    public Either<ParserError, Double> parse(Workbook workbook, String name) {
+        Either<ParserError, Seq<Double>> erreurOuListe = getArea(workbook, name).fold(
+                parseError -> left(parseError),
+                areaRef -> {
+                    Either<ParserError, Seq<SafeCell>> seqSafe =
+                            Either.sequenceRight(List.of(areaRef.getAllReferencedCells())
+                                    .map(cellRef -> getSafeCell(workbook, cellRef)));
+                    return Either.sequenceRight(seqSafe.get().map(SafeCell::asDouble).toList());
+                });
+        return erreurOuListe.flatMap(d -> Match(d.size()).of(
+                Case($(1), right(d.head())),
+                Case($(), left(new ParserError.InvalidFormat(name, "Single Numeric", "0 or more than 1 value")))
+        ));
+    }
+};
+```
+
+== Implémentation de la méthode numeric (2/2)
+
+En fait, on peut largement réutiliser numericRangeV2 et utiliser flatMap comme ceci:
+
+```java
+public static Parser<Double> numeric() {
+    return (workbook, name) -> // On réutilise numericRangeV2 pour implémenter numeric
+	    numericRangeV2(workbook, name).flatMap(d -> Match(d.size()).of(
+                Case($(1), right(d.head())),
+                Case($(), left(new ParserError.InvalidFormat(name, "Single Numeric", "0 or more than 1 value")))
+        ));
+}
+```
+
+== TUs
+
+```java
+assertEquals(Double.valueOf(numeric().parse(workbook, "ExplorationFee").get()),
+             Double.valueOf(1.4));
+
+assertThat(numeric().parse(workbook, "OilProd").getLeft())
+                   .isInstanceOf(ParserError.InvalidFormat.class);
+
+assertThat(numeric().parse(workbook, "DTC").getLeft())
+                   .isInstanceOf(ParserError.MissingName.class);
+```

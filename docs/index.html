@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Excel Parser</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+      body { font-family: 'Droid Serif', 'Helvetica'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz', 'Gill Sans';
+        font-weight: normal;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono', 'Consolas', 'Courier New'; font-size: 120%; }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+
+
+
+
+class: center, middle
+
+# Cas d'utilisation de programmation fonctionnelle:
+# Analyse d'un fichier Excel
+`@GeorgesGinon`
+
+???
+- notes here
+- see https://remarkjs.com/#1
+
+---
+# Qu'est ce qu'une fonction?
+
+.center[![function](function.JPG)]
+
+---
+# Et une fonction partielle alors?
+
+.center[![function2](function_2.jpg)]
+
+---
+# 1. Do not use partial function
+
+```scala
+def isAdult(age: Int): Boolean = {
+  require(age >= 0, "age must be positive")
+  age >= 18
+}
+```
+
+```scala
+scala> isAdult(4)
+res0: Boolean = false
+
+scala> isAdult(25)
+res1: Boolean = true
+```
+
+```scala
+scala> isAdult(-10)
+java.lang.IllegalArgumentException: requirement failed: age must be positive
+  at scala.Predef$.require(Predef.scala:277)
+  at .isAdult(<console>:13)
+  ... 205 elided
+```
+
+---
+# Increase the output type
+
+```scala
+def isAdult(age: Int): Either[String, Boolean] =
+  if(age < 0) Left(s"$age must be positive") else Right(age >= 18)
+```
+
+```scala
+scala> isAdult(4)
+res3: Either[String,Boolean] = Right(false)
+
+scala> isAdult(25)
+res4: Either[String,Boolean] = Right(true)
+
+scala> isAdult(-2)
+res5: Either[String,Boolean] = Left(-2 must be positive)
+```
+
+---
+# Functional Programming in Scala
+
+.center[![red-book](red-book.jpeg)]
+
+---
+# Cas d'utilisation
+
+.center[![workbook](workbook-intro.png)]
+
+---
+# Cas d'utilisation
+
+.center[![workbook](workbook-with-name.png)]
+
+---
+# Excel API: Workbook
+
+```xml
+<dependency>
+	<groupId>org.apache.poi</groupId>
+    <artifactId>poi-ooxml</artifactId>
+    <version>3.17</version>
+</dependency>
+```
+
+```java
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
+
+public static Workbook load(String fileName) throws IOException, InvalidFormatException {
+	return WorkbookFactory.create(new FileInputStream(new File(fileName)));
+}
+
+workbook = IO.load("example.xlsx");
+```
+
+---
+# Excel API: Name
+
+```java
+// On récupère la référence à une plage de cellule à partir d'un nom
+Name oilProduction = workbook.getName("OilProd");
+
+assertEquals(oilProduction.getRefersToFormula(), "Sheet1!$B$6:$J$6");
+```
+
+.center[![workbook](workbook.png)]
+
+---
+# Excel API: AreaReference
+
+```java
+import org.apache.poi.ss.util.AreaReference
+
+String oilProdFormule = workbook.getName("OilProd").getRefersToFormula();
+
+AreaReference area = new AreaReference(oilProdFormule, workbook.getSpreadsheetVersion());
+
+List.of(area.getAllReferencedCells()).forEach(c -> println(c));
+```
+
+```java
+org.apache.poi.ss.util.CellReference [Sheet1!$B$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$C$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$D$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$E$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$F$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$G$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$H$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$I$6]
+org.apache.poi.ss.util.CellReference [Sheet1!$J$6]
+```
+---
+# Excel API: Cell
+
+```java
+CellReference cellRef = List.of(area.getAllReferencedCells()).head();
+
+// on a plusieurs accesseurs qui permettent, à partir d'une cellule de :
+Cell cell = workbook
+	.getSheet(cellRef.getSheetName()) // trouver un onglet
+    .getRow(cellRef.getRow())         // trouver une colonne
+    .getCell(cellRef.getCol());       // trouver une cellule
+```
+
+--
+
+```java
+// Une fois, qu'on a la cellule, on peut récupérer sa valeur
+assertEquals(cell.getNumericCellValue(), 10.12, 0);
+```
+
+--
+
+```java
+cell.getStringCellValue();
+java.lang.IllegalStateException: Cannot get a STRING value from a NUMERIC cell
+  at org.apache.poi.xssf.usermodel.XSSFCell.typeMismatch(XSSFCell.java:1050)
+  at org.apache.poi.xssf.usermodel.XSSFCell.getRichStringCellValue(XSSFCell.java:404)
+  at org.apache.poi.xssf.usermodel.XSSFCell.getStringCellValue(XSSFCell.java:356)
+  ... 308 elided
+```
+
+---
+# Gestion des erreurs liées aux cellules Excel
+
+```java
+class ParserError(String ref, String expectedFormat, String message)
+```
+
+---
+# Gestion des erreurs liées aux cellules Excel
+```java
+public class SafeCell {
+  public SafeCell(Cell cell) {
+	this.cell = cell;
+    this.reference = String.format("%s!%s", cell.getSheet().getSheetName(), cell.getAddress());
+  }
+
+  public Either<ParserError, Double> asDouble() {
+	Try doubleTry = Try.of(() -> this.cell.getNumericCellValue());
+
+    return doubleTry.isFailure()
+			? Either.left(new ParserError(this.reference, "Numeric", doubleTry.getCause().getMessage()))
+            : Either.right((Double) doubleTry.get());
+    }
+}
+```
+
+---
+# Gestion des erreurs liées aux cellules Excel
+
+```scala
+SafeCell safeCell = new SafeCell(cell);
+```
+
+```java
+safeCell.asDouble()
+Right(10.12)
+
+safeCell.asString()
+Left(ParserError(Sheet1!B6,String,Cannot get a STRING value from a NUMERIC cell))
+```
+
+---
+# Analyser une liste de Double
+
+```scala
+public static Either<ParserError, Seq<Double>> numericRangeV1(Workbook workbook, String name) {
+	String formula = workbook.getName(name).getRefersToFormula();
+    AreaReference area = new AreaReference(formula, workbook.getSpreadsheetVersion());
+
+    List<SafeCell> safeCells = List.of(area.getAllReferencedCells())
+			.map(cellRef ->  workbook.getSheet(cellRef.getSheetName())
+									 .getRow(cellRef.getRow())
+                                     .getCell(cellRef.getCol()))
+            .map(SafeCell::new);
+	// En utilisant SafeCell, on renvoi une Either<ParserError, Double> pour chaque cellule
+    // Problème, on se retrouve avec une List<Either<ParserError, Double>>
+    List<Either<ParserError, Double>> doubles = safeCells.map(SafeCell::asDoubleV1);
+    // On transforme cette liste en Either<ParserError, Seq<Double>>
+    return Either.sequenceRight(doubles);
+}
+```
+
+---
+# Analyser une liste de Double
+
+```scala
+// On utilise maintenant SafeCell pour retourner un Either<ParserError, Double> pour chaque cellule.
+Either<ParserError, Seq<Double>> oilProd = 
+numericRangeV1(workbook, "OilProd");
+
+assertThat(oilProd.get().toJavaList())
+	.containsExactly(10.12, 12.34, 8.83, 6.23, 9.18, 12.36, 16.28, 18.25, 20.01);
+	
+Either<ParserError, Seq<Double>> primaryProdEither = 
+numericRangeV1(workbook, "PrimaryProduct");
+
+assertEquals(primaryProdEither.getLeft().getMessage(), "Cannot get a NUMERIC value from a STRING cell");
+```
+
+
+---
+# Analyser une liste de Double
+
+```scala
+numericRangeV1(workbook, "foo");
+```
+
+--
+
+```scala
+java.lang.NullPointerException
+  at .numericRange(<console>:43)
+  ... 837 elided
+```
+
+---
+# Analyser une liste de Double
+
+```scala
+interface ParserError
+
+class InvalidFormat(String ref, String expectedFormat, String message) implements ParserError
+class MissingName(String name) implements ParserError
+class MissingCell(String ref) implements ParserError
+```
+
+
+
+---
+# Analyser une liste de Double
+
+```scala
+static Either<ParserError, AreaReference> getArea(Workbook workbook, String name) {
+    return Try.of(() -> new AreaReference(workbook.getName(name).getRefersToFormula(),
+                                          workbook.getSpreadsheetVersion()))
+              .fold(e -> left(new ParserError.MissingName(name)), areaRef -> right(areaRef));
+}
+
+static Either<ParserError, SafeCell> getSafeCell(Workbook workbook, CellReference cellRef) {
+    Try safeCellTry = Try.of(() -> new SafeCell(
+            workbook.getSheet(cellRef.getSheetName())
+                    .getRow(cellRef.getRow())
+                    .getCell(cellRef.getCol())));
+    return safeCellTry.isFailure()
+            ? left(new ParserError.MissingCell(cellRef.toString()))
+            : right((SafeCell)safeCellTry.get());
+}
+```
+
+---
+# Analyser une liste de Double
+
+```scala
+static Either<ParserError, Seq<Double>> numericRangeV2(Workbook workbook, String name) {
+    return getArea(workbook, name).fold(
+			parseError -> left(parseError),
+            areaRef -> {
+				Either<ParserError, Seq<SafeCell>> seqSafe =
+					Either.sequenceRight(List.of(areaRef.getAllReferencedCells())
+							.map(cellRef -> getSafeCell(workbook, cellRef)));
+                return Either.sequenceRight(seqSafe.get().map(SafeCell::asDouble).toList());
+            });
+}
+```
+
+---
+# Analyser une liste de Double
+```scala
+// Dans numericRangeV2, on utilise l'interface ParserError...
+println(numericRangeV2(workbook, "OilProd"));
+Right(Vector(10.12, 12.34, 8.83, 6.23, 9.18, 12.36, 16.28, 18.25, 20.01))
+
+println(numericRangeV2(workbook, "PrimaryProduct"));
+Left(InvalidFormat(Sheet1!B4, Numeric, Cannot get a NUMERIC value from a STRING cell))
+
+println(numericRangeV2(workbook, "foo"));
+Left(MissingName(foo))
+```
+
+---
+# OK mais à quoi ça sert ton truc?
+
+
+---
+# Parsing API
+
+```scala
+def numericRange(workbook: Workbook, name: String): Either[ParserError, List[Double]]
+def intRange    (workbook: Workbook, name: String): Either[ParserError, List[Int]]
+def stringRange (workbook: Workbook, name: String): Either[ParserError, List[String]]
+
+def numeric     (workbook: Workbook, name: String): Either[ParserError, Double]
+def int         (workbook: Workbook, name: String): Either[ParserError, Int]
+def string      (workbook: Workbook, name: String): Either[ParserError, String]
+```
+
+---
+# Parsing API
+
+```scala
+public interface Parser<A>  {
+    Either<ParserError, A> parse(Workbook workbook, String name);
+}
+```
+
+```scala
+val numericRange: Parser[List[Double]]
+val intRange    : Parser[List[Int]]
+val stringRange : Parser[List[String]]
+
+val numeric     : Parser[Double]
+val int         : Parser[Int]
+val string      : Parser[String]
+```
+
+
+
+
+---
+# Numeric
+
+```scala
+val numeric: Parser[Double] = new Parser[Double] {
+  def parse(workbook: Workbook, name: String): Either[ParserError, Double] = ???
+}
+```
+
+---
+# Numeric
+
+```scala
+return new Parser<Double>() {
+    @Override
+    public Either<ParserError, Double> parse(Workbook workbook, String name) {
+        Either<ParserError, Seq<Double>> erreurOuListe = getArea(workbook, name).fold(
+                parseError -> left(parseError),
+                areaRef -> {
+                    Either<ParserError, Seq<SafeCell>> seqSafe =
+                            Either.sequenceRight(List.of(areaRef.getAllReferencedCells())
+                                    .map(cellRef -> getSafeCell(workbook, cellRef)));
+                    return Either.sequenceRight(seqSafe.get().map(SafeCell::asDouble).toList());
+                });
+        return erreurOuListe.flatMap(d -> Match(d.size()).of(
+                Case($(1), right(d.head())),
+                Case($(), left(new ParserError.InvalidFormat(name, "Single Numeric", "0 or more than 1 value")))
+        ));
+    }
+};
+```
+
+---
+# Numeric
+
+```scala
+public static Parser<Double> numeric() {
+    return (workbook, name) -> // On réutilise numericRangeV2 pour implémenter numeric
+	    numericRangeV2(workbook, name).flatMap(d -> Match(d.size()).of(
+		        Case($(1), right(d.head())),
+                Case($(), left(new ParserError.InvalidFormat(name, "Single Numeric", "0 or more than 1 value")))
+        ));
+}
+```
+
+```scala
+assertEquals(Double.valueOf(numeric().parse(workbook, "ExplorationFee").get()),
+             Double.valueOf(1.4));
+
+assertThat(numeric().parse(workbook, "OilProd").getLeft())
+                   .isInstanceOf(ParserError.InvalidFormat.class);
+
+assertThat(numeric().parse(workbook, "DTC").getLeft())
+                   .isInstanceOf(ParserError.MissingName.class);
+```
+
+
+---
+# FlatMap
+
+```scala
+def flatMap[A, B](fa: Either[ParserError, A])
+                 (f: A => Either[ParserError, B]): Either[ParserError, B] = ???
+```
+
+```scala
+def flatMap[A, B](fa: Parser[A])(f: A => Parser[B]): Parser[B] =
+  new Parser[B]{
+    def parse(workbook: Workbook, name: String): Either[ParserError, B] =
+      fa.parse(workbook, name).flatMap(a =>
+        f(a).parse(workbook, name)
+      )
+}
+```
+---
+# FlatMap
+
+```scala
+Either<ParserError, B> Either<ParserError, A>.flatMap(f: A => Either<ParserError, B) 
+```
+
+--
+
+```scala
+static <A, B> Parseur<B> flatMap(Parseur<A> fa, Function<A, Parseur<B>> f) {
+    return new Parseur<B>() {
+        @Override
+        public Either<ParserError, B> parse(Workbook workbook) {
+            return fa.parse(workbook).flatMap(
+                    a -> f.apply(a).parse(workbook));
+        }
+    };
+}
+```
+
+---
+# Numeric
+
+```scala
+def flatMap[A, B](fa: Parser[A])(f: A => Parser[B]): Parser[B]
+```
+
+```scala
+val numeric: Parser[Double] = flatMap(numericRange){
+  case x :: Nil => ??? // Right(x)
+  case _        => ??? // Left(InvalidFormat(name, "Single Numeric", "0 or more than 1 value"))
+}
+```
+
+---
+# Success / Failure
+
+```scala
+def success[A](a: A): Parser[A] =
+  new Parser[A] {
+    def parse(workbook: Workbook, name: String) = Right(a)
+  }
+
+def fail[A](error: ParserError): Parser[A] =
+  new Parser[A] {
+    def parse(workbook: Workbook, name: String) = Left(error)
+  }
+```
+
+---
+# Numeric
+
+
+```scala
+val numeric: Parser[Double] = flatMap(numericRange){
+  case x :: Nil => ??? // Right(x)
+  case _        => ??? // Left(InvalidFormat(name, "Single Numeric", "0 or more than 1 value"))
+}
+```
+
+--
+```scala
+val numeric: Parser[Double] = flatMap(numericRange){
+  case x :: Nil => success(x)
+  case _        => fail(InvalidFormat(???, "Single Numeric", "0 or more than 1 value"))
+}
+```
+
+---
+# Numeric
+
+```scala
+def fail[A](error: String => ParserError): Parser[A] =
+  new Parser[A] {
+    def parse(workbook: Workbook, name: String) = Left(error(name))
+  }
+```
+
+--
+
+```scala
+val numeric: Parser[Double] = flatMap(numericRange){
+  case x :: Nil => success(x)
+  case _        => fail(name => InvalidFormat(name, "Single Numeric", "0 or more than 1 value"))
+}
+```
+
+---
+# Other building blocks
+
+```scala
+val intRange: Parser[List[Int]]
+val int: Parser[Int]
+
+val stringRange: Parser[List[String]]
+val string: Parser[String]
+```
+
+--
+
+```scala
+val oneToRuleThemAll: Parser[???]
+```
+
+---
+# Parsing Product
+
+```scala
+case class Production(oil: List[Double], gas: List[Double])
+```
+
+```scala
+val production: Parser[Production] = ???
+```
+
+---
+# Parsing Product
+
+```scala
+case class Production(oil: List[Double], gas: List[Double])
+
+val production: Parser[Production] = new Parser[Production]{
+  def parse(workbook: Workbook, name: String) =
+   for {
+    oil <- numericRange.parse(workbook, ???)
+    gas <- numericRange.parse(workbook, ???)
+  } yield Production(oil, gas)
+}
+```
+
+---
+# Parser / Curried Parser
+
+```scala
+trait Parser[A] {
+  def parse(workbook: Workbook, name: String): Either[ParserError, A]
+}
+
+val numericRange: Parser[List[Double]] = ???
+```
+
+```scala
+trait Parser[A] {
+  def parse(workbook: Workbook): Either[ParserError, A]
+}
+
+def numericRange(name: String): Parser[List[Double]] = ???
+```
+
+
+
+
+---
+# Production
+
+```scala
+val production: Parser[Production] =
+  flatMap(numericRange("OilProd"))(oil =>
+    flatMap(numericRange("GasProd"))(gas =>
+      success(Production(oil, gas))
+    )
+  )
+```
+
+---
+# Parsing Product
+
+```scala
+def product[A, B](pa: Parser[A], pb: Parser[B]): Parser[(A, B)] = ???
+```
+
+--
+
+```scala
+def map[A, B](pa: Parser[A])(f: A => B): Parser[B] = ???
+```
+
+--
+
+
+
+
+```scala
+val production: Parser[Production] =
+  map(
+    product(numericRange("OilProd"), numericRange("GasProd"))
+  ){ case (oil, gas) => Production(oil, gas) }
+```
+
+---
+# Product
+
+```scala
+def product[A, B](pa: Parser[A], pb: Parser[B]): Parser[(A, B)] =
+  new Parser[(A, B)]{
+    def parse(workbook: Workbook): Either[ParserError, (A, B)] =
+      for {
+        a <- pa.parse(workbook)
+        b <- pb.parse(workbook)
+      } yield (a, b)
+  }
+```
+
+--
+
+```scala
+val oil = numericRange("OilProd")
+val gas = numericRange("GasProd")
+val foo = numericRange("Foo")
+```
+
+```scala
+scala> product(oil, gas).parse(workbook)
+res48: Either[ParserError,(List[Double], List[Double])] = Right((List(10.12, 12.34, 8.83, 6.23, 9.18, 12.36, 16.28, 18.25, 20.01),List(0.0, 0.0, 0.0, 3.2, 6.5, 6.38, 5.72, 4.54, 6.99)))
+
+scala> product(oil, foo).parse(workbook)
+res49: Either[ParserError,(List[Double], List[Double])] = Left(MissingName(Foo))
+```
+
+---
+# Map
+
+```scala
+def map[A, B](pa: Parser[A])(f: A => B): Parser[B] =
+  flatMap(pa)(a => success(f(a)))
+```
+
+--
+
+```scala
+case class OilProduction(value: List[Double])
+
+val oilProduction = map(numericRange("OilProd"))(OilProduction.apply)
+```
+
+```scala
+scala> oilProduction.parse(workbook)
+res51: Either[ParserError,OilProduction] = Right(OilProduction(List(10.12, 12.34, 8.83, 6.23, 9.18, 12.36, 16.28, 18.25, 20.01)))
+```
+
+---
+# Parsing Production
+
+```scala
+val production: Parser[Production] =
+  map(
+    product(numericRange("OilProd"), numericRange("GasProd"))
+  ){ case (oil, gas) => Production(oil, gas) }
+```
+
+```scala
+scala> production.parse(workbook)
+res52: Either[ParserError,Production] = Right(Production(List(10.12, 12.34, 8.83, 6.23, 9.18, 12.36, 16.28, 18.25, 20.01),List(0.0, 0.0, 0.0, 3.2, 6.5, 6.38, 5.72, 4.54, 6.99)))
+```
+
+---
+# Parser is a Cartesian Functor
+
+```scala
+trait Functor[F[_]]{
+  def map[A,B](fa: F[A])(f: A => B): F[B]
+}
+
+trait Cartesian[F[_]]{
+  def product[A, B](fa: F[A], fb: F[B]): F[(A, B)]
+}
+```
+
+---
+# Parser is a Cartesian Functor
+
+
+
+
+
+```scala
+implicit val cartesianFunctor: Functor[Parser] with Cartesian[Parser] = ???
+```
+
+```scala
+import cats.syntax.all._
+
+val oil = numericRange("OilProd")
+val gas = numericRange("GasProd")
+
+val production = (oil, gas).mapN(Production)
+```
+
+--
+
+```scala
+scala> (oil, gas, foo).tupled
+res56: Parser[(List[Double], List[Double], List[Double])] = $anon$1$$anon$3@ef398c1
+```
+
+---
+# API Iterations
+
+```scala
+def numericRange(workbook: Workbook, name: String): List[Double] = ???
+```
+
+--
+
+```scala
+def numericRange(workbook: Workbook, name: String): Either[ParserError, List[Double]] = ???
+```
+
+--
+
+```scala
+trait Parser[A]{
+  def parse(workbook: Workbook, name: String): Either[ParserError, A]
+}
+```
+
+--
+
+```scala
+trait Parser[A]{
+  def parse(workbook: Workbook): Either[ParserError, A]
+}
+```
+
+--
+
+```scala
+implicit def instances: Functor[Parser] with Cartesian[Parser] = ???
+```
+
+---
+# Is it worth it?
+
+
+
+
+```scala
+val oil: Parser[List[Double]] = numericRange("OilProd")
+val gas: Parser[List[Double]] = numericRange("GasProd")
+
+val production: Parser[Production] = (oil, gas).mapN(Production)
+```
+
+---
+class: center, middle
+
+# Thanks!
+Code and slides at `julien-truffaut/fp-api` on GitHub
+
+## Questions?
+
+---
+# Bonus: Parsing Coproduct
+
+```scala
+sealed trait Fee extends Product with Serializable
+case class TechnicalFee(technical: Double) extends Fee
+case class ExplorationFee(exploration: Double, postExploration: Double) extends Fee
+```
+
+--
+
+
+
+
+```scala
+val technicalFee: Parser[TechnicalFee] = numeric("TechnicalFee").map(TechnicalFee)
+
+val explorationFee: Parser[ExplorationFee] =
+  (numeric("ExplorationFee"), numeric("PostExplorationFee")).mapN(ExplorationFee)
+```
+
+--
+
+```scala
+scala> technicalFee.parse(workbook)
+res59: Either[ParserError,TechnicalFee] = Left(MissingName(TechnicalFee))
+
+scala> explorationFee.parse(workbook)
+res60: Either[ParserError,ExplorationFee] = Right(ExplorationFee(1.4,5.8))
+```
+
+```scala
+val fee: Parser[Fee] = ???
+```
+
+---
+# Combine
+
+```scala
+def combine[A](p1: Parser[A], p2: Parser[A]): Parser[A] = new Parser[A]{
+  def parse(workbook: Workbook): Either[ParserError, A] =
+    p1.parse(workbook) orElse p2.parse(workbook)
+}
+```
+
+--
+
+```scala
+scala> val fee = combine(technicalFee, explorationFee)
+<console>:47: error: type mismatch;
+ found   : Parser[TechnicalFee]
+ required: Parser[Fee]
+Note: TechnicalFee <: Fee, but trait Parser is invariant in type A.
+You may wish to define A as +A instead. (SLS 4.5)
+       val fee = combine(technicalFee, explorationFee)
+                         ^
+<console>:47: error: type mismatch;
+ found   : Parser[ExplorationFee]
+ required: Parser[Fee]
+Note: ExplorationFee <: Fee, but trait Parser is invariant in type A.
+You may wish to define A as +A instead. (SLS 4.5)
+       val fee = combine(technicalFee, explorationFee)
+                                       ^
+```
+
+---
+# Combine
+
+```scala
+val fee = combine(
+  technicalFee.map(f => f: Fee),
+  explorationFee.map(f => f: Fee)
+)
+```
+
+--
+
+```scala
+val fee = combine(
+  technicalFee.widen[Fee],
+  explorationFee.widen[Fee]
+)
+```
+
+```scala
+scala> fee.parse(workbook)
+res61: Either[ParserError,Fee] = Right(ExplorationFee(1.4,5.8))
+```
+
+---
+# Parser is a SemigroupK
+
+```scala
+trait Semigroup[A]{
+  def combine(x: A, y: A): A
+}
+
+trait SemigroupK[F[_]]{
+  def combineK[A](x: F[A], y: F[A]): F[A]
+}
+```
+
+--
+
+```scala
+implicit val parserSemigroupK: SemigroupK[Parser] = ...
+```
+
+```scala
+val fee = technicalFee.widen[Fee] <+> explorationFee.widen[Fee]
+```
+
+```scala
+scala> fee.parse(workbook)
+res62: Either[ParserError,Fee] = Right(ExplorationFee(1.4,5.8))
+```
+
+---
+# Bonus: Sequential composition
+
+
+
+
+```scala
+sealed trait Cost extends Product with Serializable
+
+case class Hardcoded(value: List[Double]) extends Cost
+case class Parametrized(value: Double) extends Cost
+
+val cost = boolean("Cost").flatMap{
+  case true  => numericRange("HardcodedCost").map(Hardcoded).widen[Cost]
+  case false => numeric("ParametrizedCost").map(Parametrized).widen[Cost]
+}
+```
+
+
+ </textarea>
+    <script src="remark-latest.min.js">
+    </script>
+    <script>
+      var slideshow = remark.create({
+          slideNumberFormat: '',
+          ratio: "16:9"
+      });
+    </script>
+  </body>
+</html>

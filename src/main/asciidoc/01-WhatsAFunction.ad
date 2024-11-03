@@ -1,0 +1,52 @@
+= 1.Intro Fonctions
+== Qu'est ce qu'une fonction?
+
+[.thumb]
+image::function.JPG[scaledwidth=100%]
+
+== Et une fonction partielle?
+
+[.thumb]
+image::function_2.JPG[scaledwidth=100%]
+
+== Eviter les fonctions partielles
+
+[source,java]
+----
+include::{sourcedir}/test/java/parser/S01_Introduction.java[tags=estAdultePartielle,indent=0]
+----
+[source,java]
+----
+include::{sourcedir}/test/java/parser/S01_Introduction.java[tags=estAdultePartielleTest,indent=0]
+----
+
+== Augmenter le type retourné
+[source,java]
+----
+include::{sourcedir}/test/java/parser/S01_Introduction.java[tags=estAdulte,indent=0]
+----
+[source,java]
+----
+include::{sourcedir}/test/java/parser/S01_Introduction.java[tags=estAdulteTest,indent=0]
+----
+
+=== Quelques liens sur Either (VAVR)
+
+https://filippobuletto.github.io/trash-the-exception-model-either/#how-to-use-an-either
+
+https://medium.com/@sderosiaux/using-vavr-to-write-more-robust-java-code-87ccb0be12d7
+
+== Un livre référence
+
+[.thumb]
+image::Saumont_FPinJava_hires.png[scaledwidth=50%]
+
+== Cas d'utilisation
+
+[.thumb]
+image::workbook-intro.png[scaledwidth=50%]
+
+== Cas d'utilisation
+
+[.thumb]
+image::workbook-with-name.png[scaledwidth=50%]

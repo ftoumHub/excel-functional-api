@@ -1,0 +1,121 @@
+= 4. Analyse d'une liste de double
+== numericRangeV1
+
+```java
+public static Either<ParserError, Seq<Double>> numericRangeV1(Workbook workbook, String name) {
+    String formula = workbook.getName(name).getRefersToFormula();
+    AreaReference area = new AreaReference(formula, workbook.getSpreadsheetVersion());
+
+    List<SafeCell> safeCells = List.of(area.getAllReferencedCells())
+            .map(cellRef -> workbook.getSheet(cellRef.getSheetName())
+                                    .getRow(cellRef.getRow())
+                                    .getCell(cellRef.getCol()))
+            .map(SafeCell::new);
+    // En utilisant SafeCell, on renvoi une Either<ParserError, Double> pour chaque cellule
+
+    // Problème, on se retrouve avec une List<Either<ParserError, Double>>
+    List<Either<ParserError, Double>> doubles = safeCells.map(SafeCell::asDoubleV1);
+    // On transforme cette liste en Either<ParserError, Seq<Double>>
+    return Either.sequenceRight(doubles);
+}
+```
+
+== Quelques TU...
+
+```java
+// On utilise maintenant SafeCell pour retourner un Either<ParserError, Double> pour chaque cellule.
+Either<ParserError, Seq<Double>> oilProd = numericRangeV1(workbook, "OilProd");
+
+assertThat(oilProd.get().toJavaList())
+	.containsExactly(10.12, 12.34, 8.83, 6.23, 9.18, 12.36, 16.28, 18.25, 20.01);
+
+// En cas d'erreur, on obtient un Left et un non pas une exception
+Either<ParserError, Seq<Double>> primaryProdEither = numericRangeV1(workbook, "PrimaryProduct");
+
+assertEquals(primaryProdEither.getLeft().getMessage(), "Cannot get a NUMERIC value from a STRING cell");
+```
+
+== Mais la fonction n'est pas encore totale
+
+```java
+numericRangeV1(workbook, "foo");
+```
+
+```java
+java.lang.NullPointerException
+  at .numericRange(<console>:43)
+  ... 837 elided
+```
+
+== Affiner les erreurs
+
+On va utiliser un type de donnée algébrique pour décrire les différents types d'erreur.
+
+NOTE: An algebraic data type (ADT) is a type that consists of a set of variants, or cases.
+It is similar to a Java enum, however, the variants are allowed to have different fields
+and different methods. In fact, in some languages in which ADTs are supported directly,
+they are called enumerated types.
+
+```java
+interface ParserError
+
+class InvalidFormat(String ref, String expectedFormat, String message) implements ParserError
+
+class MissingName(String name) implements ParserError
+
+class MissingCell(String ref) implements ParserError
+```
+
+== Refacto ParserError
+
+```java
+static Either<ParserError, AreaReference> getArea(Workbook workbook, String name) {
+    return Try.of(() -> new AreaReference(workbook.getName(name).getRefersToFormula(),
+                                          workbook.getSpreadsheetVersion()))
+              .fold(e -> left(new ParserError.MissingName(name)), areaRef -> right(areaRef));
+}
+
+static Either<ParserError, SafeCell> getSafeCell(Workbook workbook, CellReference cellRef) {
+    Try safeCellTry = Try.of(() -> new SafeCell(
+            workbook.getSheet(cellRef.getSheetName())
+                    .getRow(cellRef.getRow())
+                    .getCell(cellRef.getCol())));
+    return safeCellTry.isFailure()
+            ? left(new ParserError.MissingCell(cellRef.toString()))
+            : right((SafeCell)safeCellTry.get());
+}
+```
+
+== numericRangeV2
+
+A refacto avec flatMap surement
+```java
+static Either<ParserError, Seq<Double>> numericRangeV2(Workbook workbook, String name) {
+    return getArea(workbook, name).fold(
+            parseError -> left(parseError),
+            areaRef -> {
+                Either<ParserError, Seq<SafeCell>> seqSafe =
+                    Either.sequenceRight(List.of(areaRef.getAllReferencedCells())
+                          .map(cellRef -> getSafeCell(workbook, cellRef)));
+                return Either.sequenceRight(seqSafe.get().map(SafeCell::asDouble).toList());
+            });
+}
+```
+
+== Encore des TUs?
+
+On obtient des erreurs descriptives au lieu des exceptions initiales.
+
+```java
+// Dans numericRangeV2, on utilise l'interface ParserError...
+println(numericRangeV2(workbook, "OilProd"));
+Right(Vector(10.12, 12.34, 8.83, 6.23, 9.18, 12.36, 16.28, 18.25, 20.01))
+
+// En cas d'erreur de format:
+println(numericRangeV2(workbook, "PrimaryProduct"));
+Left(InvalidFormat(Sheet1!B4, Numeric, Cannot get a NUMERIC value from a STRING cell))
+
+// On a plus de NPE!!!
+println(numericRangeV2(workbook, "foo"));
+Left(MissingName(foo))
+```

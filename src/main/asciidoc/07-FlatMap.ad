@@ -1,0 +1,32 @@
+= 7. FlatMap
+
+== flat quoi????
+
+https://blog.softwaremill.com/vavrs-flatmap-in-action-a975a99c4319
+
+https://gist.github.com/kijanowski/b2161aa853ff6f870decc9336a727b3f#file-properflatmapofeither-java
+
+== flatMap de Either
+
+Pour le moment, on utilise flatMap sur un Either...
+
+flatMap prend en paramètre une fonction qui transforme A en un Either<ParserError, B>
+On peut ainsi transformer un objet A en B de manière "safe".
+
+En appelant flatMap sur un Either<ParserError, A) on obtient un Either<ParserError, B> tel que:
+
+```java
+Either<ParserError, B> Either<ParserError, A>.flatMap(A => Either<ParserError, B)
+
+@Test
+public void properFlatMapEither() {
+    println(properFlatMapOfEither("18")); // Right(18)
+
+    println(properFlatMapOfEither(null)); // Left(empty)
+
+    println(properFlatMapOfEither("Test")); // Left(Test)
+}
+```
+
+== flatMap de Parser
+
